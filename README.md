@@ -95,6 +95,8 @@ git push origin main
 
 在 Vercel 项目 → **Settings → Environment Variables** 中添加：
 
+> **Node.js 版本**：项目锁定 Node.js `20.x`，Vercel 会自动使用该版本构建。
+
 | 变量名 | 说明 | 示例 |
 |--------|------|------|
 | `DATABASE_URL` | Neon Pooler 连接串 | `postgres://user:pwd@host-pooler.region.aws.neon.tech/db?sslmode=require` |
