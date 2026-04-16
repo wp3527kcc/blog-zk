@@ -141,6 +141,82 @@ export async function deletePost(postId: number, _formData: FormData): Promise<v
   redirect('/');
 }
 
+// ─── Comment Actions ──────────────────────────────────────────────────────────
+
+export async function createComment(
+  postId: number,
+  prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const user = await getUser();
+  if (!user) return { error: '请先登录' };
+
+  const content = (formData.get('content') as string)?.trim();
+
+  if (!content) {
+    return { error: '评论内容不能为空' };
+  }
+  if (content.length > 1000) {
+    return { error: '评论不能超过 1000 个字符' };
+  }
+
+  await sql`
+    INSERT INTO comments (content, author_id, post_id)
+    VALUES (${content}, ${user.userId}, ${postId})
+  `;
+
+  revalidatePath(`/posts/${postId}`);
+  return { success: '评论成功' };
+}
+
+export async function deleteComment(commentId: number, _formData: FormData): Promise<void> {
+  const user = await getUser();
+  if (!user) redirect('/login');
+
+  const comments = await sql`
+    SELECT c.author_id, c.post_id, p.author_id AS post_author_id
+    FROM comments c
+    JOIN posts p ON c.post_id = p.id
+    WHERE c.id = ${commentId}
+  `;
+  const comment = comments[0];
+
+  if (!comment) redirect('/');
+
+  const isCommentAuthor = (comment.author_id as number) === user.userId;
+  const isPostAuthor = (comment.post_author_id as number) === user.userId;
+
+  if (!isCommentAuthor && !isPostAuthor) redirect('/');
+
+  const postId = comment.post_id as number;
+  await sql`DELETE FROM comments WHERE id = ${commentId}`;
+
+  revalidatePath(`/posts/${postId}`);
+  redirect(`/posts/${postId}`);
+}
+
+export async function toggleCommentLike(commentId: number): Promise<ActionState> {
+  const user = await getUser();
+  if (!user) return { error: '请先登录' };
+
+  const comments = await sql`SELECT post_id FROM comments WHERE id = ${commentId}`;
+  if (!comments[0]) return { error: '评论不存在' };
+  const postId = comments[0].post_id as number;
+
+  const existing = await sql`
+    SELECT id FROM comment_likes WHERE user_id = ${user.userId} AND comment_id = ${commentId}
+  `;
+
+  if (existing.length > 0) {
+    await sql`DELETE FROM comment_likes WHERE user_id = ${user.userId} AND comment_id = ${commentId}`;
+  } else {
+    await sql`INSERT INTO comment_likes (user_id, comment_id) VALUES (${user.userId}, ${commentId})`;
+  }
+
+  revalidatePath(`/posts/${postId}`);
+  return null;
+}
+
 // ─── Like Actions ─────────────────────────────────────────────────────────────
 
 export async function toggleLike(postId: number): Promise<ActionState> {

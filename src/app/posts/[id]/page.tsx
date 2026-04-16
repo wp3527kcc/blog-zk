@@ -4,7 +4,8 @@ import { sql } from '@/lib/db';
 import { getUser } from '@/lib/auth';
 import LikeButton from '@/components/LikeButton';
 import DeleteButton from '@/components/DeleteButton';
-import type { Post } from '@/lib/types';
+import CommentSection from '@/components/CommentSection';
+import type { Post, Comment } from '@/lib/types';
 
 // 将内容中的 ![alt](url) 解析为 <img>，其余文本保留换行
 function PostContent({ content }: { content: string }) {
@@ -82,6 +83,23 @@ export default async function PostDetailPage({ params }: PageProps) {
 
   const isAuthor = user?.userId === post.author_id;
 
+  const comments = await sql<Comment[]>`
+    SELECT
+      c.id, c.content, c.author_id, c.post_id, c.created_at,
+      u.username AS author_username,
+      COUNT(cl.id)::int AS like_count,
+      COALESCE(
+        MAX(CASE WHEN cl.user_id = ${user?.userId ?? 0} THEN 1 ELSE 0 END)::boolean,
+        false
+      ) AS liked_by_user
+    FROM comments c
+    JOIN users u ON c.author_id = u.id
+    LEFT JOIN comment_likes cl ON c.id = cl.comment_id
+    WHERE c.post_id = ${postId}
+    GROUP BY c.id, u.username
+    ORDER BY c.created_at ASC
+  `;
+
   return (
     <main className="max-w-3xl mx-auto px-4 py-8">
       <div className="flex items-center gap-3 mb-8">
@@ -143,6 +161,14 @@ export default async function PostDetailPage({ params }: PageProps) {
           )}
         </div>
       </article>
+
+      <CommentSection
+        postId={post.id}
+        postAuthorId={post.author_id}
+        comments={comments}
+        currentUserId={user?.userId ?? null}
+        isLoggedIn={!!user}
+      />
     </main>
   );
 }
