@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { tosClient, TOS_BUCKET, buildCdnUrl } from '@/lib/tos';
+import { mkdir, writeFile } from 'fs/promises';
+import path from 'path';
 import { getUser } from '@/lib/auth';
 
 const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -11,6 +12,9 @@ const ALLOWED_TYPES: Record<string, string> = {
   'image/gif': 'gif',
   'image/webp': 'webp',
 };
+
+// 上传目录位于 public/uploads，Next.js 会将 public 目录下的文件作为静态资源提供
+const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads');
 
 export async function POST(request: NextRequest) {
   // 鉴权：必须登录
@@ -48,25 +52,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 生成唯一存储路径：blog/images/YYYY/MM/uuid.ext
+  // 生成存储子目录：YYYY/MM
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
-  const key = `blog/images/${year}/${month}/${randomUUID()}.${ext}`;
+  const subDir = path.join(UPLOAD_DIR, String(year), month);
+  const filename = `${randomUUID()}.${ext}`;
+  const filePath = path.join(subDir, filename);
 
-  // 上传到火山云 TOS
+  // 写入本地文件系统
   const buffer = Buffer.from(await file.arrayBuffer());
   try {
-    await tosClient.putObject({
-      bucket: TOS_BUCKET,
-      key,
-      body: buffer,
-      headers: { 'Content-Type': file.type },
-    });
+    await mkdir(subDir, { recursive: true });
+    await writeFile(filePath, buffer);
   } catch (err) {
-    console.error('TOS upload error:', err);
+    console.error('Local upload error:', err);
     return NextResponse.json({ error: '上传失败，请重试' }, { status: 500 });
   }
 
-  return NextResponse.json({ url: buildCdnUrl(key) });
+  // 返回可通过服务访问的 URL（/uploads/YYYY/MM/uuid.ext）
+  const url = `/uploads/${year}/${month}/${filename}`;
+  return NextResponse.json({ url });
 }

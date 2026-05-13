@@ -1,65 +1,62 @@
 'use client';
 
-import { useActionState, useRef, useState, useEffect } from 'react';
+import { useActionState, useRef, useState, useEffect, use } from 'react';
 import Link from 'next/link';
-import { createPost } from '@/lib/actions';
+import { useRouter } from 'next/navigation';
+import { updatePost } from '@/lib/actions';
 import ImageUpload from '@/components/ImageUpload';
 import MarkdownContent from '@/components/MarkdownContent';
 
-const DRAFT_KEY = 'blog:new-post-draft';
+interface EditPageProps {
+  params: Promise<{ id: string }>;
+}
 
-type Draft = { title: string; content: string; coverImage: string; tags: string; savedAt: string };
-type SaveStatus = 'idle' | 'saving' | 'saved';
+interface PostData {
+  id: number;
+  title: string;
+  content: string;
+  cover_image: string | null;
+  tags: string[];
+}
 
-export default function NewPostPage() {
-  const [state, action, isPending] = useActionState(createPost, null);
+export default function EditPostPage({ params }: EditPageProps) {
+  const { id } = use(params);
+  const postId = parseInt(id, 10);
+  const router = useRouter();
+
+  const boundAction = updatePost.bind(null, postId);
+  const [state, action, isPending] = useActionState(boundAction, null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [coverImage, setCoverImage] = useState('');
   const [tags, setTags] = useState('');
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
-  const [savedAt, setSavedAt] = useState<Date | null>(null);
-  const [showDraftBanner, setShowDraftBanner] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [notFound, setNotFound] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (!raw) return;
-      const draft = JSON.parse(raw) as Draft;
-      if (!draft.title && !draft.content) return;
-
-      setTitle(draft.title ?? '');
-      setContent(draft.content ?? '');
-      setCoverImage(draft.coverImage ?? '');
-      setTags(draft.tags ?? '');
-      if (draft.savedAt) setSavedAt(new Date(draft.savedAt));
-      setShowDraftBanner(true);
-    } catch {
-      // 草稿解析失败时静默忽略
+    if (isNaN(postId)) {
+      setNotFound(true);
+      return;
     }
-  }, []);
-
-  useEffect(() => {
-    if (!title && !content) return;
-
-    setSaveStatus('saving');
-    const timer = setTimeout(() => {
-      try {
-        const now = new Date();
-        const draft: Draft = { title, content, coverImage, tags, savedAt: now.toISOString() };
-        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-        setSavedAt(now);
-        setSaveStatus('saved');
-      } catch {
-        setSaveStatus('idle');
-      }
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, [title, content, coverImage, tags]);
+    fetch(`/api/posts/${postId}`)
+      .then((r) => {
+        if (!r.ok) throw new Error('not found');
+        return r.json() as Promise<PostData>;
+      })
+      .then((data) => {
+        setTitle(data.title);
+        setContent(data.content);
+        setCoverImage(data.cover_image ?? '');
+        setTags((data.tags ?? []).join(', '));
+        setLoaded(true);
+      })
+      .catch(() => {
+        setNotFound(true);
+      });
+  }, [postId]);
 
   const handleImageUpload = (url: string) => {
     const textarea = contentRef.current;
@@ -69,7 +66,6 @@ export default function NewPostPage() {
     const end = textarea.selectionEnd;
     const insert = `![图片](${url})`;
     const next = content.substring(0, start) + insert + content.substring(end);
-
     setContent(next);
 
     requestAnimationFrame(() => {
@@ -79,105 +75,63 @@ export default function NewPostPage() {
     });
   };
 
-  const handleSubmit = () => {
-    localStorage.removeItem(DRAFT_KEY);
-    setShowDraftBanner(false);
-  };
+  if (notFound) {
+    return (
+      <main className="max-w-3xl mx-auto px-4 py-8 text-center">
+        <p className="text-gray-400">文章不存在或无权编辑</p>
+        <Link href="/" className="text-blue-500 hover:underline text-sm mt-4 inline-block">
+          返回首页
+        </Link>
+      </main>
+    );
+  }
 
-  const discardDraft = () => {
-    localStorage.removeItem(DRAFT_KEY);
-    setTitle('');
-    setContent('');
-    setCoverImage('');
-    setTags('');
-    setSaveStatus('idle');
-    setSavedAt(null);
-    setShowDraftBanner(false);
-  };
+  if (!loaded) {
+    return (
+      <main className="max-w-3xl mx-auto px-4 py-8 text-center">
+        <span className="inline-block w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+      </main>
+    );
+  }
 
   return (
     <main className={showPreview ? 'max-w-7xl mx-auto px-4 py-8' : 'max-w-3xl mx-auto px-4 py-8'}>
-      {/* 顶部栏 */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <Link
-            href="/"
+          <button
+            type="button"
+            onClick={() => router.back()}
             className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
           >
-            ← 返回首页
-          </Link>
-          <span className="text-gray-200">|</span>
-          <h1 className="text-lg font-semibold text-gray-900">写新文章</h1>
-        </div>
-
-        <div className="flex items-center gap-4">
-          {/* 预览切换按钮 */}
-          <button
-            type="button"
-            onClick={() => setShowPreview((v) => !v)}
-            className={`inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors ${
-              showPreview
-                ? 'bg-blue-50 border-blue-200 text-blue-600'
-                : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
-            }`}
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-            </svg>
-            {showPreview ? '关闭预览' : '实时预览'}
+            ← 返回
           </button>
-
-          {/* 自动保存状态 */}
-          <div className="text-xs text-gray-400 flex items-center gap-1.5 min-w-[100px] justify-end">
-            {saveStatus === 'saving' && (
-              <>
-                <span className="inline-block w-3 h-3 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
-                正在保存...
-              </>
-            )}
-            {saveStatus === 'saved' && savedAt && (
-              <>
-                <svg className="w-3 h-3 text-green-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                </svg>
-                草稿已保存
-              </>
-            )}
-          </div>
+          <span className="text-gray-200">|</span>
+          <h1 className="text-lg font-semibold text-gray-900">编辑文章</h1>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowPreview((v) => !v)}
+          className={`inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors ${
+            showPreview
+              ? 'bg-blue-50 border-blue-200 text-blue-600'
+              : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+          }`}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+          </svg>
+          {showPreview ? '关闭预览' : '实时预览'}
+        </button>
       </div>
 
-      {showDraftBanner && (
-        <div className="mb-4 flex items-center justify-between bg-amber-50 border border-amber-100 text-amber-700 text-xs px-4 py-2.5 rounded-lg">
-          <span>
-            已恢复上次未发布的草稿
-            {savedAt &&
-              ` · 保存于 ${savedAt.toLocaleString('zh-CN', {
-                month: 'numeric',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}`}
-          </span>
-          <button
-            type="button"
-            onClick={discardDraft}
-            className="ml-4 text-amber-500 hover:text-amber-700 underline underline-offset-2 shrink-0"
-          >
-            丢弃草稿
-          </button>
-        </div>
-      )}
-
-      <form action={action} onSubmit={handleSubmit}>
+      <form action={action}>
         {state?.error && (
           <div className="mb-4 bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg border border-red-100">
             {state.error}
           </div>
         )}
 
-        {/* 分栏布局 */}
         <div className={showPreview ? 'grid grid-cols-2 gap-6' : ''}>
           {/* 编辑区 */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 space-y-6">
@@ -188,7 +142,6 @@ export default function NewPostPage() {
               </div>
             )}
 
-            {/* 封面图 */}
             <div>
               {coverImage ? (
                 <div className="relative">
@@ -245,15 +198,19 @@ export default function NewPostPage() {
               rows={showPreview ? 22 : 18}
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder={`在此写下你的内容...\n\n支持完整 Markdown 语法：\n# 标题  **加粗**  *斜体*\n\`代码\`  > 引用  - 列表\n| 表格 | 列 |`}
+              placeholder="在此写下你的内容..."
               className="w-full text-gray-700 placeholder:text-gray-300 text-sm leading-relaxed border-none outline-none bg-transparent resize-none"
             />
 
             <div className="flex items-start justify-between pt-4 border-t border-gray-50 gap-4">
               <div className="flex flex-col gap-3">
-                <Link href="/" className="text-sm text-gray-400 hover:text-gray-600 transition-colors">
+                <button
+                  type="button"
+                  onClick={() => router.back()}
+                  className="text-sm text-gray-400 hover:text-gray-600 transition-colors text-left"
+                >
                   取消
-                </Link>
+                </button>
                 <ImageUpload onUpload={handleImageUpload} disabled={isPending} label="插入图片" />
               </div>
               <button
@@ -261,7 +218,7 @@ export default function NewPostPage() {
                 disabled={isPending}
                 className="bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white text-sm font-medium px-6 py-2.5 rounded-lg transition-colors shrink-0"
               >
-                {isPending ? '发布中...' : '发布文章'}
+                {isPending ? '保存中...' : '保存修改'}
               </button>
             </div>
           </div>

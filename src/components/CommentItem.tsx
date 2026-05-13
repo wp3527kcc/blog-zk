@@ -1,8 +1,38 @@
 'use client';
 
+import { Fragment } from 'react';
+import Link from 'next/link';
 import { deleteComment } from '@/lib/actions';
 import CommentLikeButton from './CommentLikeButton';
 import type { Comment } from '@/lib/types';
+
+const MENTION_RE = /@([a-zA-Z0-9_\u4e00-\u9fa5]{2,20})/g;
+
+function renderWithMentions(content: string) {
+  const parts: Array<{ type: 'text' | 'mention'; value: string }> = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = MENTION_RE.exec(content)) !== null) {
+    if (m.index > last) parts.push({ type: 'text', value: content.slice(last, m.index) });
+    parts.push({ type: 'mention', value: m[1] });
+    last = m.index + m[0].length;
+  }
+  if (last < content.length) parts.push({ type: 'text', value: content.slice(last) });
+
+  return parts.map((p, i) =>
+    p.type === 'mention' ? (
+      <Link
+        key={i}
+        href={`/users/${p.value}`}
+        className="text-blue-500 hover:text-blue-600 hover:underline font-medium"
+      >
+        @{p.value}
+      </Link>
+    ) : (
+      <Fragment key={i}>{p.value}</Fragment>
+    )
+  );
+}
 
 interface CommentItemProps {
   comment: Comment;
@@ -29,14 +59,19 @@ export default function CommentItem({
 
   return (
     <div className="flex gap-3 py-4">
-      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5">
+      <div className="w-7 h-7 rounded-full bg-linear-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5">
         {comment.author_username[0].toUpperCase()}
       </div>
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2 mb-1">
           <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span className="font-medium text-gray-700">{comment.author_username}</span>
+            <Link
+              href={`/users/${comment.author_username}`}
+              className="font-medium text-gray-700 hover:text-blue-600 transition-colors"
+            >
+              {comment.author_username}
+            </Link>
             <span>·</span>
             <time dateTime={comment.created_at}>
               {new Date(comment.created_at).toLocaleDateString('zh-CN', {
@@ -68,8 +103,8 @@ export default function CommentItem({
           </div>
         </div>
 
-        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
-          {comment.content}
+        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap wrap-break-word">
+          {renderWithMentions(comment.content)}
         </p>
       </div>
     </div>

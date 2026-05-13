@@ -57,7 +57,7 @@ export default function CommentSection({
               required
               rows={3}
               maxLength={1000}
-              placeholder="写下你的评论..."
+              placeholder="写下你的评论...（支持 @用户名 提及他人，对方将收到通知和邮件）"
               className="w-full text-sm text-gray-700 placeholder:text-gray-300 border border-gray-100 rounded-xl px-4 py-3 outline-none focus:border-gray-200 focus:ring-2 focus:ring-gray-50 resize-none leading-relaxed transition-all"
             />
             <div className="flex justify-end">
