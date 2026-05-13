@@ -1,132 +1,86 @@
-# 博客系统
+# Blog ZK
 
-基于 Next.js 16 App Router 构建的全栈博客平台，支持用户注册/登录、发帖删帖、点赞、图片上传等功能。
+基于 Next.js 16 App Router 构建的全栈博客平台，支持 Markdown 写作、标签、关注、通知、全文搜索等完整社区功能。
 
 ## 技术栈
 
-| 类型 | 技术 |
+| 层级 | 技术 |
 |------|------|
-| 框架 | Next.js 16 (App Router + Turbopack) |
-| 语言 | TypeScript |
-| 样式 | Tailwind CSS v4 |
-| 数据库 | PostgreSQL（Neon 无服务器版） |
-| 缓存 / Session | Upstash Redis |
-| 认证 | 有状态 Session Token（UUID + Redis） |
-| 图片存储 | 火山云 TOS + CDN |
-| 部署 | Vercel |
-
-## 功能特性
-
-- 用户注册 / 登录 / 退出（Cookie Session，7 天有效）
-- 发布、删除文章
-- 博客列表 & 文章详情
-- 点赞（乐观更新）
-- 图片上传（火山云 TOS，单张 ≤ 5 MB）
-- 路由守卫（访问 `/posts/new` 自动跳转登录）
+| 框架 | Next.js 16.2（App Router，React Server Components） |
+| 语言 | TypeScript 5 |
+| 样式 | Tailwind CSS v4 + @tailwindcss/typography |
+| 数据库 | PostgreSQL（Neon，`postgres` 驱动） |
+| 缓存 / 会话 | Upstash Redis（HTTP REST SDK） |
+| 邮件 | Nodemailer（SMTP，支持 QQ 邮箱等） |
+| 图片存储 | 本地 `public/uploads/`（已内置火山引擎 TOS SDK，可扩展） |
+| Markdown | react-markdown + remark-gfm |
+| 包管理 | pnpm |
 
 ---
 
-## 本地开发
+## 功能一览
 
-### 前置要求
+### 账户体系
+- 注册 / 登录 / 登出
+- 会话存储于 Upstash Redis（Cookie `auth-token` + UUID token，7 天有效），服务端登出立即失效
+- 密码 bcrypt 哈希存储
 
-- Node.js >= 20.9.0（推荐使用 [nvm](https://github.com/nvm-sh/nvm)）
-- 一个 [Neon](https://neon.tech) PostgreSQL 数据库
-- 一个 [Upstash](https://upstash.com) Redis 数据库
-- 一个火山云 TOS Bucket（含 CDN 域名）
+### 文章
+- **写文章**：标题、正文（完整 Markdown）、封面图上传、标签（逗号分隔，最多 10 个）
+- **实时预览**：写文章 / 编辑页均支持左右分栏 Markdown 实时预览
+- **草稿自动保存**：写文章时每 1 秒防抖写入 localStorage，刷新后可恢复
+- **封面图**：列表卡片和详情页均展示封面图缩略图
+- **编辑 / 删除**：仅作者可操作，编辑页预填所有字段
+- **阅读量统计**：Redis `SET NX` + 1 小时去重（已登录用户按 userId，匿名按 IP），写入 PostgreSQL `views` 列
 
-### 1. 克隆并安装依赖
+### 首页
+- **全部 / 关注** Tab 切换（已登录用户可切到「关注」Feed）
+- **全文搜索**：PostgreSQL `to_tsvector + plainto_tsquery`（`simple` 配置，支持中文）
+- **标签过滤**：点击标签胶囊按标签筛选
+- 搜索 × 标签 × Feed 三个维度可叠加，URL 参数 `?q=&tag=&feed=following`
 
-```bash
-git clone <repo-url>
-cd next-demo
-npm install
-```
+### 标签
+- 多对多（`tags` + `post_tags` 表）
+- 写 / 编辑时用逗号分隔输入，自动 upsert
+- 首页标签栏、文章详情均可点击跳转过滤
 
-### 2. 配置环境变量
+### 评论
+- 登录后可发评论（最多 1000 字）
+- 支持 `@用户名` 提及，渲染为可点击蓝色链接，跳转个人主页
+- 点赞评论
+- 评论作者或文章作者可删除评论
 
-复制示例文件并填入真实值：
+### 点赞
+- 文章点赞，乐观更新 UI
+- 评论点赞
 
-```bash
-cp .env.example .env
-```
+### 关注 / 订阅
+- 关注 / 取关其他用户（不能关注自己）
+- 个人主页展示关注者数 / 关注中数
+- 首页「关注」Feed 只显示已关注作者的文章
 
-各变量说明见 `.env.example`。
+### 通知中心
+触发场景：
 
-### 3. 初始化数据库表
+| 事件 | 站内通知 | 邮件 |
+|------|---------|------|
+| 有人评论我的文章 | ✅ | ❌ |
+| 有人点赞我的文章 | ✅ | ❌ |
+| 有人点赞我的评论 | ✅ | ❌ |
+| 有人关注我 | ✅ | ❌ |
+| 评论中被 @ 提及 | ✅ | ✅ |
 
-启动开发服务器后，**首次运行必须** 访问以下接口创建数据库表：
+- `/notifications` 页面：最近 100 条，未读高亮 + 蓝色圆点
+- 点击单条 → 标为已读 + 跳转目标页
+- 「全部标为已读」一键清空
+- Navbar 铃铛图标实时展示未读数（>99 显示 99+）
 
-```bash
-# 启动开发服务器
-npm run dev
-
-# 在另一个终端初始化 DB（只需执行一次）
-curl http://localhost:3000/api/init
-# 返回 {"success":true} 即为成功
-```
-
-### 4. 访问
-
-打开 [http://localhost:3000](http://localhost:3000)
-
-> **注意**：本机需使用 Node.js 20+。若使用 nvm，执行 `nvm use 20`。
-
----
-
-## 部署到 Vercel
-
-### 第一步：推送代码到 GitHub
-
-```bash
-git add .
-git commit -m "feat: blog system"
-git push origin main
-```
-
-### 第二步：在 Vercel 导入项目
-
-1. 打开 [vercel.com/new](https://vercel.com/new)
-2. 点击 **Import Git Repository**，选择你的 GitHub 仓库
-3. Framework Preset 会自动识别为 **Next.js**，无需修改
-4. 点击 **Environment Variables**，逐一添加以下变量：
-
-### 第三步：配置环境变量
-
-在 Vercel 项目 → **Settings → Environment Variables** 中添加：
-
-> **Node.js 版本**：项目锁定 Node.js `20.x`，Vercel 会自动使用该版本构建。
-
-| 变量名 | 说明 | 示例 |
-|--------|------|------|
-| `DATABASE_URL` | Neon Pooler 连接串 | `postgres://user:pwd@host-pooler.region.aws.neon.tech/db?sslmode=require` |
-| `UPSTASH_REDIS_REST_URL` | Upstash Redis REST URL | `https://xxx.upstash.io` |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis Token | `Adxx...` |
-| `JWT_SECRET` | Session 签名密钥（随机字符串 ≥ 32 位） | `f6734b10-5272-...` |
-| `TOS_ACCESS_KEY_ID` | 火山云 AccessKey ID | `AKLTZj...` |
-| `TOS_ACCESS_KEY_SECRET` | 火山云 AccessKey Secret | `TXpne...` |
-| `TOS_ENDPOINT` | TOS 服务端点 | `tos-cn-beijing.volces.com` |
-| `TOS_REGION` | TOS 地域 | `cn-beijing` |
-| `BUCKET_NAME` | TOS Bucket 名称 | `my-blog-images` |
-| `CDNBASEURL` | 图片 CDN 域名（末尾带 `/`） | `https://cdn.example.com/` |
-
-> **重要**：`DATABASE_URL` 必须使用 Neon 的 **Pooler** 端点（URL 中含 `-pooler`），普通端点在 Vercel 无服务器环境下会因连接数限制报错。
-
-### 第四步：部署
-
-点击 **Deploy**，等待构建完成（约 30~60 秒）。
-
-### 第五步：初始化数据库（首次部署后必做）
-
-部署成功后，访问以下 URL 创建数据库表：
-
-```
-https://<your-project>.vercel.app/api/init
-```
-
-页面返回 `{"success":true,"message":"数据库初始化成功"}` 即完成。
-
-> 此操作使用 `CREATE TABLE IF NOT EXISTS`，重复执行不会破坏数据，安全。
+### 个人主页 `/users/[username]`
+- 用户头像（首字母渐变）、加入时间
+- 统计数据：文章数 / 总阅读量 / 获赞数 / 关注者数 / 关注中数
+- 发布的全部文章列表（含标签、阅读量、点赞数）
+- 自己看自己时：「写文章」按钮 + 「这是你」标签
+- 看他人时：「关注 / 已关注」按钮（乐观更新）
 
 ---
 
@@ -135,66 +89,184 @@ https://<your-project>.vercel.app/api/init
 ```
 src/
 ├── app/
-│   ├── page.tsx              # 博客首页（文章列表）
-│   ├── login/page.tsx        # 登录页
-│   ├── register/page.tsx     # 注册页
+│   ├── layout.tsx              # 根布局（Navbar + 全局样式）
+│   ├── page.tsx                # 首页（搜索 / 标签 / Feed）
+│   ├── login/page.tsx
+│   ├── register/page.tsx
+│   ├── notifications/page.tsx  # 通知中心
 │   ├── posts/
-│   │   ├── new/page.tsx      # 发布文章
-│   │   └── [id]/page.tsx     # 文章详情
+│   │   ├── new/page.tsx        # 写文章（含草稿 / 预览）
+│   │   └── [id]/
+│   │       ├── page.tsx        # 文章详情（阅读计数 / Markdown渲染）
+│   │       └── edit/page.tsx   # 编辑文章（含预览）
+│   ├── users/[username]/page.tsx  # 个人主页
 │   └── api/
-│       ├── init/route.ts     # 数据库初始化
-│       └── upload/route.ts   # 图片上传（火山云 TOS）
+│       ├── init/route.ts       # GET /api/init — 执行数据库迁移
+│       ├── upload/route.ts     # POST /api/upload — 上传图片到本地
+│       └── posts/[id]/route.ts # GET /api/posts/:id — 供编辑页加载数据
 ├── components/
-│   ├── Navbar.tsx            # 顶部导航
-│   ├── LikeButton.tsx        # 点赞按钮（客户端，乐观更新）
-│   ├── DeleteButton.tsx      # 删除按钮（客户端，含确认弹窗）
-│   └── ImageUpload.tsx       # 图片上传组件
-├── lib/
-│   ├── actions.ts            # Server Actions（登录/注册/发帖/点赞）
-│   ├── auth.ts               # Session 管理（Redis）
-│   ├── db.ts                 # PostgreSQL 连接 & 表初始化
-│   ├── redis.ts              # Upstash Redis 客户端
-│   ├── tos.ts                # 火山云 TOS 客户端
-│   └── types.ts              # TypeScript 类型定义
-└── proxy.ts                  # 路由守卫（Next.js 16 Proxy）
+│   ├── Navbar.tsx              # 顶部导航（未读通知徽标）
+│   ├── MarkdownContent.tsx     # react-markdown 渲染器
+│   ├── LikeButton.tsx          # 文章点赞（乐观更新）
+│   ├── CommentLikeButton.tsx   # 评论点赞（乐观更新）
+│   ├── DeleteButton.tsx        # 删除文章
+│   ├── FollowButton.tsx        # 关注 / 取关（乐观更新）
+│   ├── CommentSection.tsx      # 评论区容器
+│   ├── CommentItem.tsx         # 单条评论（@mention 高亮）
+│   └── ImageUpload.tsx         # 图片上传（复用于封面图 / 正文插图）
+└── lib/
+    ├── db.ts                   # PostgreSQL 连接 + initDb() 建表
+    ├── auth.ts                 # 会话管理（Cookie + Redis）
+    ├── redis.ts                # Upstash Redis 单例
+    ├── actions.ts              # 全部 Server Actions
+    ├── notifications.ts        # 站内通知创建 + @mention 解析
+    ├── email.ts                # Nodemailer SMTP 发送 + 邮件模板
+    ├── tos.ts                  # 火山引擎 TOS 客户端（已就位，未启用）
+    └── types.ts                # TypeScript 类型定义
 ```
 
-## 数据库表结构
+---
 
-```sql
--- 用户表
-CREATE TABLE users (
-  id            SERIAL PRIMARY KEY,
-  username      VARCHAR(50)  UNIQUE NOT NULL,
-  email         VARCHAR(100) UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  created_at    TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+## 数据库设计
 
--- 文章表
-CREATE TABLE posts (
-  id         SERIAL PRIMARY KEY,
-  title      VARCHAR(200) NOT NULL,
-  content    TEXT NOT NULL,           -- 支持 ![alt](url) 图片语法
-  author_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+所有表通过 `GET /api/init` 幂等创建（`CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`）。
 
--- 点赞表
-CREATE TABLE likes (
-  id         SERIAL PRIMARY KEY,
-  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  post_id    INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(user_id, post_id)
-);
 ```
+users
+  id · username · email · password_hash · created_at
+
+posts
+  id · title · content · cover_image · author_id → users
+  views · created_at · updated_at
+
+likes
+  id · user_id → users · post_id → posts  (UNIQUE user_id+post_id)
+
+comments
+  id · content · author_id → users · post_id → posts · created_at
+
+comment_likes
+  id · user_id → users · comment_id → comments  (UNIQUE user_id+comment_id)
+
+tags
+  id · name (UNIQUE) · slug (UNIQUE)
+
+post_tags
+  post_id → posts · tag_id → tags  (PRIMARY KEY 复合)
+
+follows
+  follower_id → users · following_id → users  (PRIMARY KEY 复合, CHECK follower≠following)
+
+notifications
+  id · user_id → users · actor_id → users
+  type: mention | follow | comment | like | comment_like
+  post_id → posts · comment_id → comments
+  content · read_at · created_at
+  INDEX: (user_id, read_at, created_at DESC)
+```
+
+---
+
+## 快速开始
+
+### 1. 克隆并安装依赖
+
+```bash
+use20          # 切换到 Node.js 20
+pnpm install
+```
+
+### 2. 配置环境变量
+
+复制 `.env.example`（或直接新建 `.env`）并填写：
+
+```env
+# PostgreSQL（推荐 Neon 免费套餐）
+DATABASE_URL=postgres://...
+
+# Upstash Redis（upstash.com 免费套餐）
+UPSTASH_REDIS_REST_URL=https://...
+UPSTASH_REDIS_REST_TOKEN=...
+
+# SMTP 邮件（不配置时邮件仅打日志，不影响其他功能）
+SMTP_HOST=smtp.qq.com
+SMTP_PORT=465
+SMTP_USER=你的QQ号@qq.com
+SMTP_PASS=QQ邮箱授权码
+SMTP_FROM="博客 <你的QQ号@qq.com>"
+
+# 应用基础 URL（邮件中的跳转链接会用到）
+APP_BASE_URL=http://localhost:3000
+```
+
+> **SMTP 获取方式**：QQ邮箱 → 设置 → 账户 → 开启 SMTP → 生成授权码
+
+### 3. 初始化数据库
+
+启动开发服务器后访问一次：
+
+```
+http://localhost:3000/api/init
+```
+
+返回 `{"success":true}` 即表示所有表创建成功。**每次新增表结构后都需要重新访问此接口**。
+
+### 4. 启动开发服务器
+
+```bash
+pnpm dev
+```
+
+访问 `http://localhost:3000`
+
+### 5. 构建生产版本
+
+```bash
+pnpm build
+pnpm start
+```
+
+---
 
 ## 图片上传说明
 
-- 接口：`POST /api/upload`（需登录）
-- 限制：单张 ≤ 5 MB，支持 JPG / PNG / GIF / WebP
-- 存储路径：`blog/images/{年}/{月}/{UUID}.{ext}`
-- 上传成功后，图片 URL 以 `![图片](url)` 格式插入正文
-- 文章详情页自动将 `![alt](url)` 渲染为 `<img>` 标签
+当前上传方案将图片存储在 `public/uploads/YYYY/MM/` 目录下，通过 Next.js 静态服务访问。
+
+项目已内置**火山引擎 TOS SDK**（`src/lib/tos.ts`），如需切换到对象存储，修改 `src/app/api/upload/route.ts` 改为调用 `tosClient.putObject()` 并返回 CDN URL 即可，相关环境变量：
+
+```env
+TOS_ACCESS_KEY_ID=...
+TOS_ACCESS_KEY_SECRET=...
+TOS_ENDPOINT=tos-cn-beijing.volces.com
+TOS_REGION=cn-beijing
+BUCKET_NAME=your-bucket
+CDNBASEURL=https://your-cdn.example.com/
+```
+
+---
+
+## 开发规范
+
+> 详见 [AGENTS.md](./AGENTS.md)
+
+- 始终使用 **git bash** 执行命令，禁用 PowerShell
+- 安装包前先执行 `use20` 切换 Node.js 20
+- 包管理统一使用 **pnpm**（`pnpm add`，`pnpm add -D`）
+
+---
+
+## 主要依赖版本
+
+| 包 | 版本 |
+|----|------|
+| next | 16.2.3 |
+| react | 19.2.4 |
+| typescript | ^5 |
+| tailwindcss | ^4 |
+| postgres | ^3.4.9 |
+| @upstash/redis | ^1.37.0 |
+| nodemailer | ^8.0.7 |
+| react-markdown | ^10.1.0 |
+| remark-gfm | ^4.0.1 |
+| bcryptjs | ^3.0.3 |
+| @volcengine/tos-sdk | ^2.9.1 |

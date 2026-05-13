@@ -46,7 +46,7 @@ export default async function NotificationsPage() {
     LIMIT 100
   `;
 
-  const unreadCount = notifications.filter((n) => !n.read_at).length;
+  const unreadCount = notifications.filter((n: Notification) => !n.read_at).length;
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-8">
@@ -76,7 +76,7 @@ export default async function NotificationsPage() {
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          {notifications.map((n, idx) => {
+          {notifications.map((n: Notification, idx: number) => {
             const isUnread = !n.read_at;
             const href = notificationLink(n);
             const action = readNotificationAndGo.bind(null, n.id, href);

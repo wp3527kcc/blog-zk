@@ -418,16 +418,15 @@ export async function toggleFollow(targetUserId: number): Promise<ActionState> {
 
 // ─── Notification Actions ─────────────────────────────────────────────────────
 
-export async function markAllNotificationsRead(): Promise<ActionState> {
+export async function markAllNotificationsRead(_formData?: FormData): Promise<void> {
   const user = await getUser();
-  if (!user) return { error: '请先登录' };
+  if (!user) return;
 
   await sql`
     UPDATE notifications SET read_at = NOW()
     WHERE user_id = ${user.userId} AND read_at IS NULL
   `;
   revalidatePath('/notifications');
-  return null;
 }
 
 export async function markNotificationRead(notificationId: number): Promise<ActionState> {
