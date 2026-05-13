@@ -230,9 +230,17 @@ pnpm start
 
 ## 图片上传说明
 
-当前上传方案将图片存储在 `public/uploads/YYYY/MM/` 目录下，通过 Next.js 静态服务访问。
+图片通过 **Vercel Blob** 存储，上传后返回公开 CDN URL，路径格式为 `uploads/YYYY/MM/<uuid>.<ext>`。
 
-项目已内置**火山引擎 TOS SDK**（`src/lib/tos.ts`），如需切换到对象存储，修改 `src/app/api/upload/route.ts` 改为调用 `tosClient.putObject()` 并返回 CDN URL 即可，相关环境变量：
+需在 `.env` 中配置：
+
+```env
+BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
+```
+
+Token 在 [Vercel Dashboard](https://vercel.com/dashboard) → 项目 → Storage → Blob → 创建 Token 获取。本地开发与生产环境使用同一 Token 即可。
+
+项目中保留了**火山引擎 TOS SDK**（`src/lib/tos.ts`），如需切换，修改 `src/app/api/upload/route.ts` 调用 `tosClient.putObject()` 并配置以下环境变量：
 
 ```env
 TOS_ACCESS_KEY_ID=...
