@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { sendPasswordReset, resetPassword } from '@/lib/actions';
@@ -126,17 +126,25 @@ function ResetPasswordForm({ token }: { token: string }) {
   );
 }
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
-          {token ? <ResetPasswordForm token={token} /> : <SendEmailForm />}
-        </div>
+    <div className="w-full max-w-sm">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
+        {token ? <ResetPasswordForm token={token} /> : <SendEmailForm />}
       </div>
+    </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <div className="min-h-[80vh] flex items-center justify-center px-4">
+      <Suspense fallback={<div className="text-gray-400 text-sm">加载中...</div>}>
+        <ResetPasswordContent />
+      </Suspense>
     </div>
   );
 }

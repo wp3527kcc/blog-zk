@@ -10,7 +10,7 @@ interface VerifyEmailPageProps {
 async function VerifyEmailResult({ token }: { token: string }) {
   const result = await verifyEmail(token);
 
-  if (result.success) {
+  if (result?.success) {
     return (
       <>
         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -40,7 +40,7 @@ async function VerifyEmailResult({ token }: { token: string }) {
     );
   }
 
-  const isExpired = result.data?.expired;
+  const isExpired = result?.data?.expired;
 
   return (
     <>
@@ -60,7 +60,7 @@ async function VerifyEmailResult({ token }: { token: string }) {
         </svg>
       </div>
       <h1 className="text-2xl font-bold text-gray-900 mb-2">验证失败</h1>
-      <p className="text-gray-500 mb-6">{result.error}</p>
+      <p className="text-gray-500 mb-6">{result?.error}</p>
       <div className="flex gap-3 justify-center">
         {isExpired ? (
           <Link
