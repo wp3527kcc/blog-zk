@@ -51,9 +51,24 @@ export default async function Navbar() {
               <span className="text-sm text-gray-400 hidden sm:block">|</span>
               <Link
                 href={`/users/${user.username}`}
-                className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
+                className="flex items-center gap-2 group"
+                aria-label={`${user.username} 的个人主页`}
               >
-                {user.username}
+                {user.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={user.avatar_url}
+                    alt={user.username}
+                    className="w-7 h-7 rounded-full object-cover border border-gray-200 group-hover:border-blue-300 transition-colors"
+                  />
+                ) : (
+                  <span className="w-7 h-7 rounded-full bg-linear-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                    {user.username[0].toUpperCase()}
+                  </span>
+                )}
+                <span className="text-sm font-medium text-gray-700 group-hover:text-blue-600 transition-colors hidden sm:block">
+                  {user.username}
+                </span>
               </Link>
               <form action={logout}>
                 <button

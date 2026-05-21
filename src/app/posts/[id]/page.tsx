@@ -46,6 +46,7 @@ export default async function PostDetailPage({ params }: PageProps) {
       p.id, p.title, p.content, p.cover_image, p.author_id, p.views,
       p.created_at, p.updated_at,
       u.username AS author_username,
+      u.avatar_url AS author_avatar,
       COUNT(DISTINCT l.id)::int AS like_count,
       COALESCE(
         MAX(CASE WHEN l.user_id = ${user?.userId ?? 0} THEN 1 ELSE 0 END)::boolean,
@@ -61,7 +62,7 @@ export default async function PostDetailPage({ params }: PageProps) {
     LEFT JOIN post_tags pt ON p.id = pt.post_id
     LEFT JOIN tags t ON pt.tag_id = t.id
     WHERE p.id = ${postId}
-    GROUP BY p.id, u.username
+    GROUP BY p.id, u.username, u.avatar_url
   `;
 
   const post = posts[0];
@@ -75,6 +76,7 @@ export default async function PostDetailPage({ params }: PageProps) {
     SELECT
       c.id, c.content, c.author_id, c.post_id, c.created_at,
       u.username AS author_username,
+      u.avatar_url AS author_avatar,
       COUNT(cl.id)::int AS like_count,
       COALESCE(
         MAX(CASE WHEN cl.user_id = ${user?.userId ?? 0} THEN 1 ELSE 0 END)::boolean,
@@ -84,7 +86,7 @@ export default async function PostDetailPage({ params }: PageProps) {
     JOIN users u ON c.author_id = u.id
     LEFT JOIN comment_likes cl ON c.id = cl.comment_id
     WHERE c.post_id = ${postId}
-    GROUP BY c.id, u.username
+    GROUP BY c.id, u.username, u.avatar_url
     ORDER BY c.created_at ASC
   `;
 
@@ -134,15 +136,26 @@ export default async function PostDetailPage({ params }: PageProps) {
                 href={`/users/${post.author_username}`}
                 className="flex items-center gap-2 hover:opacity-80 transition-opacity"
               >
-                <div className="w-7 h-7 rounded-full bg-linear-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
-                  {post.author_username[0].toUpperCase()}
+                <div className="w-7 h-7 rounded-full shrink-0 overflow-hidden">
+                  {post.author_avatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={post.author_avatar}
+                      alt={post.author_username}
+                      className="w-full h-full rounded-full object-cover"
+                    />
+                  ) : (
+                    <span className="w-full h-full rounded-full bg-linear-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+                      {post.author_username[0].toUpperCase()}
+                    </span>
+                  )}
                 </div>
                 <span className="font-medium text-gray-700">
                   {post.author_username}
                 </span>
               </Link>
               <span>·</span>
-              <time dateTime={post.created_at}>
+              <time dateTime={new Date(post.created_at).toISOString()}>
                 {new Date(post.created_at).toLocaleDateString('zh-CN', {
                   year: 'numeric',
                   month: 'long',

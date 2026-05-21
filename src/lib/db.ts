@@ -115,4 +115,15 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_notifications_user_unread
     ON notifications (user_id, read_at, created_at DESC)
   `;
+
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`;
+
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token VARCHAR(64)`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_sent_at TIMESTAMP WITH TIME ZONE`;
+
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(64)`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_sent_at TIMESTAMP WITH TIME ZONE`;
+
+  await sql`CREATE INDEX IF NOT EXISTS idx_users_verification_token ON users (email_verification_token)`;
 }

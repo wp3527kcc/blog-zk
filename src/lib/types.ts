@@ -2,6 +2,7 @@ export interface User {
   id: number;
   username: string;
   email: string;
+  avatar_url?: string;
   created_at: string;
 }
 
@@ -18,6 +19,7 @@ export interface Post {
   cover_image?: string;
   author_id: number;
   author_username: string;
+  author_avatar?: string | null;
   created_at: string;
   updated_at: string;
   like_count: number;
@@ -31,6 +33,7 @@ export interface Comment {
   content: string;
   author_id: number;
   author_username: string;
+  author_avatar: string | null;
   post_id: number;
   created_at: string;
   like_count: number;
@@ -41,11 +44,13 @@ export interface JWTPayload {
   userId: number;
   username: string;
   email: string;
+  avatar_url?: string;
 }
 
 export type ActionState = {
   error?: string;
   success?: string;
+  data?: Record<string, unknown>;
 } | null;
 
 export type NotificationType = 'mention' | 'follow' | 'comment' | 'like' | 'comment_like';
@@ -68,4 +73,21 @@ export interface Follow {
   follower_id: number;
   following_id: number;
   created_at: string;
+}
+
+// ─── Home Posts Pagination ────────────────────────────────────────────────────
+
+export const HOME_PAGE_SIZE = 5;
+
+export interface GetHomePostsPageParams {
+  q?: string;
+  tags?: string[];
+  feed?: string;
+  page: number;
+  pageSize?: number;
+}
+
+export interface GetHomePostsPageResult {
+  posts: Post[];
+  hasMore: boolean;
 }

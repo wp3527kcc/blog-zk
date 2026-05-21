@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(use20)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}

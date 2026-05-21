@@ -6,7 +6,7 @@ import { toggleFollow } from '@/lib/actions';
 interface FollowButtonProps {
   targetUserId: number;
   initialFollowing: boolean;
-  initialFollowerCount: number;
+  initialFollowerCount?: number;
   isLoggedIn: boolean;
 }
 
@@ -17,7 +17,7 @@ export default function FollowButton({
   isLoggedIn,
 }: FollowButtonProps) {
   const [following, setFollowing] = useState(initialFollowing);
-  const [count, setCount] = useState(initialFollowerCount);
+  const [count, setCount] = useState(initialFollowerCount ?? null);
   const [error, setError] = useState('');
   const [isPending, startTransition] = useTransition();
 
@@ -30,13 +30,13 @@ export default function FollowButton({
 
     const optimisticFollowing = !following;
     setFollowing(optimisticFollowing);
-    setCount((c) => c + (optimisticFollowing ? 1 : -1));
+    setCount((c) => c !== null ? c + (optimisticFollowing ? 1 : -1) : null);
 
     startTransition(async () => {
       const result = await toggleFollow(targetUserId);
       if (result?.error) {
         setFollowing((v) => !v);
-        setCount((c) => c + (optimisticFollowing ? -1 : 1));
+        setCount((c) => c !== null ? c + (optimisticFollowing ? -1 : 1) : null);
         setError(result.error);
       }
     });
@@ -66,7 +66,9 @@ export default function FollowButton({
         )}
       </button>
       {error && <span className="text-xs text-red-500">{error}</span>}
-      <span className="text-xs text-gray-400">{count} 关注者</span>
+      {count !== null && (
+        <span className="text-xs text-gray-400">{count} 关注者</span>
+      )}
     </div>
   );
 }

@@ -3,6 +3,9 @@ import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db';
 import { getUser } from '@/lib/auth';
 import FollowButton from '@/components/FollowButton';
+import AvatarUpload from '@/components/AvatarUpload';
+import UsernameEdit from '@/components/UsernameEdit';
+import ChangePasswordForm from '@/components/ChangePasswordForm';
 import type { Post } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -15,6 +18,7 @@ interface UserProfile {
   id: number;
   username: string;
   email: string;
+  avatar_url: string | null;
   created_at: string;
 }
 
@@ -29,7 +33,7 @@ export default async function UserProfilePage({ params }: PageProps) {
   const currentUser = await getUser();
 
   const users = await sql<UserProfile[]>`
-    SELECT id, username, email, created_at FROM users WHERE username = ${username}
+    SELECT id, username, email, avatar_url, created_at FROM users WHERE username = ${username}
   `;
   const profile = users[0];
   if (!profile) notFound();
@@ -86,12 +90,34 @@ export default async function UserProfilePage({ params }: PageProps) {
       {/* 个人信息卡片 */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 mb-8">
         <div className="flex items-start gap-6">
-          <div className="w-16 h-16 rounded-full bg-linear-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-2xl font-bold shrink-0">
-            {profile.username[0].toUpperCase()}
+          {/* 头像区域 */}
+          <div className="shrink-0">
+            {isOwnProfile ? (
+              <AvatarUpload
+                username={profile.username}
+                avatarUrl={profile.avatar_url}
+                size={64}
+              />
+            ) : profile.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={profile.avatar_url}
+                alt={profile.username}
+                className="w-16 h-16 rounded-full object-cover border-2 border-white shadow-sm"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-linear-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-2xl font-bold">
+                {profile.username[0].toUpperCase()}
+              </div>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-xl font-bold text-gray-900">{profile.username}</h1>
+              {isOwnProfile ? (
+                <UsernameEdit initialUsername={profile.username} />
+              ) : (
+                <h1 className="text-xl font-bold text-gray-900">{profile.username}</h1>
+              )}
               {isOwnProfile && (
                 <span className="text-xs text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">这是你</span>
               )}
@@ -120,26 +146,29 @@ export default async function UserProfilePage({ params }: PageProps) {
                 <div className="text-xs text-gray-400 mt-0.5">获赞</div>
               </div>
               <div className="w-px h-8 bg-gray-100" />
-              <div className="text-center">
-                <div className="text-xl font-bold text-gray-900">{followStats.followers}</div>
-                <div className="text-xs text-gray-400 mt-0.5">关注者</div>
-              </div>
+              <Link href={`/users/${profile.username}/followers`} className="text-center group">
+                <div className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">{followStats.followers}</div>
+                <div className="text-xs text-gray-400 mt-0.5 group-hover:text-blue-500 transition-colors">关注者</div>
+              </Link>
               <div className="w-px h-8 bg-gray-100" />
-              <div className="text-center">
-                <div className="text-xl font-bold text-gray-900">{followStats.following}</div>
-                <div className="text-xs text-gray-400 mt-0.5">关注中</div>
-              </div>
+              <Link href={`/users/${profile.username}/following`} className="text-center group">
+                <div className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">{followStats.following}</div>
+                <div className="text-xs text-gray-400 mt-0.5 group-hover:text-blue-500 transition-colors">关注中</div>
+              </Link>
             </div>
           </div>
 
-          <div className="shrink-0">
+          <div className="shrink-0 flex flex-col items-end gap-2">
             {isOwnProfile ? (
-              <Link
-                href="/posts/new"
-                className="inline-flex items-center gap-1.5 bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg transition-colors"
-              >
-                <span>+</span> 写文章
-              </Link>
+              <>
+                <Link
+                  href="/posts/new"
+                  className="inline-flex items-center gap-1.5 bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg transition-colors"
+                >
+                  <span>+</span> 写文章
+                </Link>
+                <ChangePasswordForm />
+              </>
             ) : (
               <FollowButton
                 targetUserId={profile.id}
@@ -202,7 +231,7 @@ export default async function UserProfilePage({ params }: PageProps) {
                   )}
 
                   <div className="flex items-center justify-between text-xs text-gray-400">
-                    <time dateTime={post.created_at}>
+                    <time dateTime={new Date(post.created_at).toISOString()}>
                       {new Date(post.created_at).toLocaleDateString('zh-CN', {
                         year: 'numeric',
                         month: 'long',

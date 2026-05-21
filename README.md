@@ -22,6 +22,7 @@
 
 ### 账户体系
 - 注册 / 登录 / 登出
+- **邮箱验证**：注册后需验证邮箱才能登录，验证链接 24 小时有效
 - 会话存储于 Upstash Redis（Cookie `auth-token` + UUID token，7 天有效），服务端登出立即失效
 - 密码 bcrypt 哈希存储
 
@@ -35,6 +36,7 @@
 
 ### 首页
 - **全部 / 关注** Tab 切换（已登录用户可切到「关注」Feed）
+- **无限滚动分页**：首屏服务端渲染前 10 篇，滚动到底部后客户端自动加载下一页（`IntersectionObserver`），无需手动点击
 - **全文搜索**：PostgreSQL `to_tsvector + plainto_tsquery`（`simple` 配置，支持中文）
 - **标签过滤**：点击标签胶囊按标签筛选
 - 搜索 × 标签 × Feed 三个维度可叠加，URL 参数 `?q=&tag=&feed=following`
@@ -90,7 +92,7 @@
 src/
 ├── app/
 │   ├── layout.tsx              # 根布局（Navbar + 全局样式）
-│   ├── page.tsx                # 首页（搜索 / 标签 / Feed）
+│   ├── page.tsx                # 首页（搜索 / 标签 / Feed，无限滚动分页）
 │   ├── login/page.tsx
 │   ├── register/page.tsx
 │   ├── notifications/page.tsx  # 通知中心
@@ -111,6 +113,8 @@ src/
 │   ├── CommentLikeButton.tsx   # 评论点赞（乐观更新）
 │   ├── DeleteButton.tsx        # 删除文章
 │   ├── FollowButton.tsx        # 关注 / 取关（乐观更新）
+│   ├── PostCard.tsx            # 文章卡片（首页 / 用户页复用）
+│   ├── HomePostList.tsx        # 首页无限滚动列表（客户端组件）
 │   ├── CommentSection.tsx      # 评论区容器
 │   ├── CommentItem.tsx         # 单条评论（@mention 高亮）
 │   └── ImageUpload.tsx         # 图片上传（复用于封面图 / 正文插图）
@@ -134,6 +138,7 @@ src/
 ```
 users
   id · username · email · password_hash · created_at
+  email_verified · email_verification_token · email_verification_sent_at
 
 posts
   id · title · content · cover_image · author_id → users
@@ -167,6 +172,16 @@ notifications
 
 ---
 
+## 邮箱验证流程
+
+1. **用户注册** → 填写用户名、邮箱、密码
+2. **发送验证邮件** → 系统生成随机 token，发送含验证链接的邮件（24小时有效）
+3. **等待验证页面** → 提示用户查收邮件，提供「重新发送」按钮
+4. **点击验证链接** → `/verify-email?token=xxx` 验证邮箱并激活账号
+5. **登录检查** → 未验证邮箱的用户登录时会提示验证，并提供重新发送入口
+
+---
+
 ## 快速开始
 
 ### 1. 克隆并安装依赖
@@ -188,7 +203,7 @@ DATABASE_URL=postgres://...
 UPSTASH_REDIS_REST_URL=https://...
 UPSTASH_REDIS_REST_TOKEN=...
 
-# SMTP 邮件（不配置时邮件仅打日志，不影响其他功能）
+# SMTP 邮件（注册邮箱验证必需，不配置时邮件仅打日志，验证功能不可用）
 SMTP_HOST=smtp.qq.com
 SMTP_PORT=465
 SMTP_USER=你的QQ号@qq.com
@@ -200,6 +215,8 @@ APP_BASE_URL=http://localhost:3000
 ```
 
 > **SMTP 获取方式**：QQ邮箱 → 设置 → 账户 → 开启 SMTP → 生成授权码
+>
+> **注意**：邮箱验证是注册流程的必要环节，请确保 SMTP 配置正确，否则新用户无法完成注册验证。
 
 ### 3. 初始化数据库
 
@@ -224,6 +241,24 @@ pnpm dev
 ```bash
 pnpm build
 pnpm start
+```
+
+### 6. 运行 Cursor Agent 命令行 Demo
+
+`agent/demo.js` 支持在命令行选择模型、输入多行提示词，并以逐字效果输出回复：
+
+```bash
+use20
+node agent/demo.js
+```
+
+脚本会自动读取项目根目录 `.env` 中的 `CURSOR_API_KEY`；如果命令行环境已设置同名变量，则优先使用命令行环境变量。
+在 pnpm 安装的 Windows 环境下，脚本也会自动定位 `@cursor/sdk-win32-x64` 自带的 `rg.exe`，避免本地 Agent 扫描工作区时报 `Ripgrep path not configured`。
+
+如需调整逐字输出速度，可设置毫秒级延迟：
+
+```bash
+TYPEWRITER_DELAY_MS=0 node agent/demo.js
 ```
 
 ---

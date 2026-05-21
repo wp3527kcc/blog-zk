@@ -34,7 +34,7 @@ export default function EditPostPage({ params }: EditPageProps) {
   const [tags, setTags] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [notFound, setNotFound] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
 
   useEffect(() => {
     if (isNaN(postId)) {

@@ -31,6 +31,17 @@ export default function CommentSection({
     }
   }, [state]);
 
+  const handleMention = (username: string) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const mention = `@${username} `;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    ta.value = ta.value.slice(0, start) + mention + ta.value.slice(end);
+    ta.selectionStart = ta.selectionEnd = start + mention.length;
+    ta.focus();
+  };
+
   return (
     <div className="mt-6 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="px-8 py-5 border-b border-gray-50">
@@ -93,6 +104,7 @@ export default function CommentSection({
                 currentUserId={currentUserId}
                 postAuthorId={postAuthorId}
                 isLoggedIn={isLoggedIn}
+                onMention={isLoggedIn ? handleMention : undefined}
               />
             ))}
           </div>

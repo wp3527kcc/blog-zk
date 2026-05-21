@@ -5,8 +5,10 @@ import { signToken, setAuthCookie, clearAuthCookie, getUser } from './auth';
 import bcrypt from 'bcryptjs';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import type { ActionState } from './types';
+import type { ActionState, GetHomePostsPageParams, GetHomePostsPageResult, Post } from './types';
+import { HOME_PAGE_SIZE } from './types';
 import { createNotification, handleCommentMentions } from './notifications';
+import { sendEmail, buildVerificationEmail, buildResetPasswordEmail } from './email';
 
 // ─── Auth Actions ─────────────────────────────────────────────────────────────
 
@@ -21,17 +23,29 @@ export async function login(
     return { error: '请填写所有字段' };
   }
 
-  const users = await sql`SELECT * FROM users WHERE email = ${email}`;
+  const users = await sql`SELECT id, username, email, password_hash, avatar_url, email_verified FROM users WHERE email = ${email}`;
   const user = users[0];
 
   if (!user || !(await bcrypt.compare(password, user.password_hash as string))) {
     return { error: '邮箱或密码错误' };
   }
 
+  if (!user.email_verified) {
+    return {
+      error: '请先验证邮箱',
+      data: {
+        email: user.email as string,
+        unverified: true,
+        userId: user.id as number,
+      },
+    };
+  }
+
   const token = await signToken({
     userId: user.id as number,
     username: user.username as string,
     email: user.email as string,
+    avatar_url: user.avatar_url as string,
   });
 
   await setAuthCookie(token);
@@ -56,15 +70,18 @@ export async function register(
     return { error: '密码至少 6 位' };
   }
 
-  let user: Record<string, unknown>;
+  const crypto = await import('crypto');
+  const verificationToken = crypto.randomBytes(32).toString('hex');
+
+  let userId: number;
   try {
     const passwordHash = await bcrypt.hash(password, 10);
     const result = await sql`
-      INSERT INTO users (username, email, password_hash)
-      VALUES (${username}, ${email}, ${passwordHash})
-      RETURNING id, username, email
+      INSERT INTO users (username, email, password_hash, email_verification_token, email_verification_sent_at)
+      VALUES (${username}, ${email}, ${passwordHash}, ${verificationToken}, NOW())
+      RETURNING id
     `;
-    user = result[0] as Record<string, unknown>;
+    userId = result[0].id as number;
   } catch (err: unknown) {
     if (
       err &&
@@ -77,19 +94,112 @@ export async function register(
     return { error: '注册失败，请重试' };
   }
 
-  const token = await signToken({
-    userId: user.id as number,
-    username: user.username as string,
-    email: user.email as string,
-  });
+  const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
+  const verifyUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
 
-  await setAuthCookie(token);
-  redirect('/');
+  const { subject, html } = buildVerificationEmail({ username, verifyUrl });
+  await sendEmail({ to: email, subject, html });
+
+  redirect(`/register/success?email=${encodeURIComponent(email)}`);
 }
 
 export async function logout() {
   await clearAuthCookie();
   redirect('/login');
+}
+
+export async function resendVerificationEmail(
+  prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const email = (formData.get('email') as string)?.trim();
+  const userIdStr = formData.get('userId') as string;
+  const userId = userIdStr ? parseInt(userIdStr, 10) : null;
+
+  if (!email) {
+    return { error: '请提供邮箱地址' };
+  }
+
+  interface UserWithVerify {
+    id: number;
+    username: string;
+    email: string;
+    email_verified: boolean;
+  }
+
+  let user: UserWithVerify | null = null;
+
+  if (userId) {
+    const users = await sql`SELECT id, username, email, email_verified FROM users WHERE id = ${userId} AND email = ${email}`;
+    user = (users[0] as UserWithVerify) || null;
+  } else {
+    const users = await sql`SELECT id, username, email, password_hash, avatar_url, email_verified FROM users WHERE email = ${email}`;
+    user = (users[0] as UserWithVerify) || null;
+  }
+
+  if (!user) {
+    return { error: '用户不存在' };
+  }
+
+  if (user.email_verified) {
+    return { error: '邮箱已验证，请直接登录' };
+  }
+
+  const crypto = await import('crypto');
+  const verificationToken = crypto.randomBytes(32).toString('hex');
+
+  await sql`
+    UPDATE users
+    SET email_verification_token = ${verificationToken},
+        email_verification_sent_at = NOW()
+    WHERE id = ${user.id}
+  `;
+
+  const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
+  const verifyUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
+
+  const { subject, html } = buildVerificationEmail({
+    username: user.username as string,
+    verifyUrl,
+  });
+  await sendEmail({ to: email, subject, html });
+
+  return { success: '验证邮件已重新发送，请查收' };
+}
+
+export async function verifyEmail(token: string): Promise<ActionState> {
+  if (!token) {
+    return { error: '验证令牌无效' };
+  }
+
+  const users = await sql`
+    SELECT id, email, username, email_verification_sent_at
+    FROM users
+    WHERE email_verification_token = ${token}
+  `;
+
+  if (users.length === 0) {
+    return { error: '验证链接已失效或不存在' };
+  }
+
+  const user = users[0];
+  const sentAt = new Date(user.email_verification_sent_at as string);
+  const now = new Date();
+  const hoursDiff = (now.getTime() - sentAt.getTime()) / (1000 * 60 * 5);
+
+  if (hoursDiff > 24) {
+    return { error: '验证链接已过期，请重新发送验证邮件', data: { expired: true } };
+  }
+
+  await sql`
+    UPDATE users
+    SET email_verified = TRUE,
+        email_verification_token = NULL,
+        email_verification_sent_at = NULL
+    WHERE id = ${user.id}
+  `;
+
+  return { success: '邮箱验证成功', data: { email: user.email as string } };
 }
 
 // ─── Tag helpers ──────────────────────────────────────────────────────────────
@@ -451,4 +561,209 @@ export async function readNotificationAndGo(notificationId: number, href: string
   `;
   revalidatePath('/notifications');
   redirect(href);
+}
+
+export async function updateUsername(
+  prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const user = await getUser();
+  if (!user) return { error: '请先登录' };
+
+  const newUsername = (formData.get('username') as string)?.trim();
+  if (!newUsername) return { error: '用户名不能为空' };
+  if (newUsername.length < 2 || newUsername.length > 20)
+    return { error: '用户名长度为 2-20 个字符' };
+  if (!/^[a-zA-Z0-9_\u4e00-\u9fa5]+$/.test(newUsername))
+    return { error: '仅支持字母、数字、下划线或中文' };
+  if (newUsername === user.username)
+    return { error: '新用户名与当前相同' };
+
+  try {
+    await sql`UPDATE users SET username = ${newUsername} WHERE id = ${user.userId}`;
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'code' in err && err.code === '23505')
+      return { error: '该用户名已被使用' };
+    return { error: '更新失败，请重试' };
+  }
+
+  const newToken = await signToken({ ...user, username: newUsername });
+  await setAuthCookie(newToken);
+  revalidatePath(`/users/${user.username}`);
+  redirect(`/users/${newUsername}`);
+}
+
+export async function updateAvatar(url: string): Promise<ActionState> {
+  const user = await getUser();
+  if (!user) return { error: '请先登录' };
+
+  await sql`UPDATE users SET avatar_url = ${url} WHERE id = ${user.userId}`;
+
+  const newToken = await signToken({ ...user, avatar_url: url });
+  await setAuthCookie(newToken);
+
+  revalidatePath(`/users/${user.username}`);
+  return { success: '头像已更新' };
+}
+
+export async function changePassword(
+  prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const user = await getUser();
+  if (!user) return { error: '请先登录' };
+
+  const oldPassword = formData.get('oldPassword') as string;
+  const newPassword = formData.get('newPassword') as string;
+
+  if (!oldPassword || !newPassword) {
+    return { error: '请填写所有字段' };
+  }
+  if (newPassword.length < 6) {
+    return { error: '新密码至少 6 位' };
+  }
+  if (oldPassword === newPassword) {
+    return { error: '新密码与旧密码相同' };
+  }
+
+  const users = await sql`SELECT password_hash FROM users WHERE id = ${user.userId}`;
+  const currentHash = users[0]?.password_hash as string | undefined;
+  if (!currentHash || !(await bcrypt.compare(oldPassword, currentHash))) {
+    return { error: '旧密码错误' };
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await sql`UPDATE users SET password_hash = ${passwordHash} WHERE id = ${user.userId}`;
+
+  const newToken = await signToken({ ...user });
+  await setAuthCookie(newToken);
+
+  return { success: '密码已修改' };
+}
+
+export async function sendPasswordReset(
+  prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const email = (formData.get('email') as string)?.trim();
+  if (!email) return { error: '请填写邮箱地址' };
+
+  const users = await sql`SELECT id, username FROM users WHERE email = ${email}`;
+  const user = users[0];
+  if (!user) {
+    // 不暴露邮箱是否存在
+    return { success: '如果该邮箱已注册，你将收到重置邮件' };
+  }
+
+  const crypto = await import('crypto');
+  const token = crypto.randomBytes(32).toString('hex');
+
+  await sql`
+    UPDATE users
+    SET password_reset_token = ${token}, password_reset_sent_at = NOW()
+    WHERE id = ${user.id}
+  `;
+
+  const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
+  const resetUrl = `${baseUrl}/reset-password?token=${token}`;
+
+  const { subject, html } = buildResetPasswordEmail({
+    username: user.username as string,
+    resetUrl,
+  });
+  await sendEmail({ to: email, subject, html });
+
+  return { success: '如果该邮箱已注册，你将收到重置邮件' };
+}
+
+export async function resetPassword(
+  prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const token = formData.get('token') as string;
+  const password = formData.get('password') as string;
+
+  if (!token) return { error: '重置链接无效' };
+  if (!password) return { error: '请填写新密码' };
+  if (password.length < 6) return { error: '密码至少 6 位' };
+
+  const users = await sql`
+    SELECT id, username, password_reset_sent_at FROM users
+    WHERE password_reset_token = ${token}
+  `;
+  const user = users[0];
+  if (!user) return { error: '重置链接已失效或不存在' };
+
+  const sentAt = new Date(user.password_reset_sent_at as string);
+  const hoursDiff = (Date.now() - sentAt.getTime()) / (1000 * 60 * 60);
+  if (hoursDiff > 24) return { error: '重置链接已过期，请重新发送' };
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  await sql`
+    UPDATE users
+    SET password_hash = ${passwordHash},
+        password_reset_token = NULL,
+        password_reset_sent_at = NULL
+    WHERE id = ${user.id}
+  `;
+
+  return { success: '密码已重置，请使用新密码登录' };
+}
+
+// ─── Home Posts Pagination ────────────────────────────────────────────────────
+
+export async function getHomePostsPage(
+  params: GetHomePostsPageParams
+): Promise<GetHomePostsPageResult> {
+  const { q, tags = [], feed, page, pageSize = HOME_PAGE_SIZE } = params;
+  const queryStr = q?.trim() ?? '';
+  const selectedTags = tags.filter(Boolean);
+
+  const user = await getUser();
+  const isFollowingFeed = feed === 'following' && !!user;
+  const userId = user?.userId ?? 0;
+
+  const limit = pageSize + 1;
+  const offset = (page - 1) * pageSize;
+
+  const rows = await sql<Post[]>`
+    SELECT
+      p.id, p.title, p.content, p.cover_image, p.author_id, p.views,
+      p.created_at, p.updated_at,
+      u.username AS author_username,
+      u.avatar_url AS author_avatar,
+      COUNT(DISTINCT l.id)::int AS like_count,
+      false AS liked_by_user,
+      COALESCE(
+        ARRAY_AGG(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL),
+        ARRAY[]::text[]
+      ) AS tags
+    FROM posts p
+    JOIN users u ON p.author_id = u.id
+    LEFT JOIN likes l ON p.id = l.post_id
+    LEFT JOIN post_tags pt ON p.id = pt.post_id
+    LEFT JOIN tags t ON pt.tag_id = t.id
+    WHERE 1 = 1
+      ${queryStr
+        ? sql`AND to_tsvector('simple', p.title || ' ' || p.content) @@ plainto_tsquery('simple', ${queryStr})`
+        : sql``}
+      ${selectedTags.length > 0
+        ? sql`AND p.id IN (
+            SELECT pt2.post_id FROM post_tags pt2
+            JOIN tags tfilter ON pt2.tag_id = tfilter.id
+            WHERE tfilter.name = ANY(${selectedTags})
+          )`
+        : sql``}
+      ${isFollowingFeed
+        ? sql`AND p.author_id IN (SELECT following_id FROM follows WHERE follower_id = ${userId})`
+        : sql``}
+    GROUP BY p.id, u.username, u.avatar_url
+    ORDER BY p.created_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+
+  const hasMore = rows.length > pageSize;
+  const posts = hasMore ? rows.slice(0, pageSize) : rows;
+
+  return { posts, hasMore };
 }
