@@ -11,9 +11,9 @@ export default function LoginPage() {
     null,
   );
 
-  const isUnverified = loginState?.data?.unverified;
-  const pendingEmail = loginState?.data?.email;
-  const pendingUserId = loginState?.data?.userId;
+  const isUnverified = !!loginState?.data?.unverified;
+  const pendingEmail = loginState?.data?.email as string | undefined;
+  const pendingUserId = loginState?.data?.userId as number | undefined;
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center px-4">
